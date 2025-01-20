@@ -9,6 +9,8 @@ presto = Presto(full_res=False, ambient_light=True, layers=1)
 display = presto.display
 WIDTH, HEIGHT = display.get_bounds()
 CX, CY = WIDTH // 2, HEIGHT // 2  # Screen center
+CAMZ, CAMY, CAMZ = 0, 0, 0
+CAMRZ = 0
 
 # **Define Colors**
 BLACK = display.create_pen(0, 0, 0)  # Background
@@ -16,7 +18,7 @@ DARK_GREY = display.create_pen(50, 50, 50)  # Dark Grey Orbit Rings (Dotted)
 WHITE = display.create_pen(255, 255, 255)  # Stars & Comets
 SUN_COLOR = display.create_pen(255, 255, 0)  # Sun Core
 
-# **Precompute Sin/Cos Tables for Faster Math**
+# **Precompute Sin/Cos Tables for Faster Math**5
 SIN_TABLE = [math.sin(math.radians(i)) for i in range(360)]
 COS_TABLE = [math.cos(math.radians(i)) for i in range(360)]
 
@@ -25,7 +27,9 @@ vector = PicoVector(display)
 vector.set_antialiasing(ANTIALIAS_FAST)
 
 # **Starfield Background (Fixed)**
-STARS = [(random.randint(0, WIDTH), random.randint(0, HEIGHT)) for _ in range(50)]
+STARS = [((random.random()*2-1)*1.5, (random.random()*2-1)*1.5) for _ in range(50)]
+
+T=0
 
 # **Comet System**
 comets = []
@@ -41,14 +45,14 @@ cam_angle = 0  # Camera panning angle
 
 # **Planets: (Color, Orbit Radius, Orbital Speed, Size, Has Moons?)**
 PLANETS = [
-    (display.create_pen(255, 165, 0), 30, 4.15, 3, False),  # Mercury
-    (display.create_pen(255, 255, 0), 50, 1.62, 5, False),  # Venus
-    (display.create_pen(0, 100, 255), 70, 1.00, 6, True),   # Earth
-    (display.create_pen(255, 0, 0), 90, 0.53, 5, False),    # Mars
-    (display.create_pen(255, 200, 100), 120, 0.08, 12, True), # Jupiter
-    (display.create_pen(200, 150, 100), 150, 0.03, 10, True), # Saturn
-    (display.create_pen(100, 200, 255), 180, 0.011, 8, False), # Uranus
-    (display.create_pen(50, 50, 255), 210, 0.006, 8, False)  # Neptune
+    (display.create_pen(255, 165, 0), 30, 4.15, 3, False, (255,165,0)),  # Mercury
+    (display.create_pen(255, 255, 0), 50, 1.62, 5, False, (255,255,0)),  # Venus
+    (display.create_pen(0, 100, 255), 70, 1.00, 6, True, (0,100,255)),   # Earth
+    (display.create_pen(255, 0, 0), 90, 0.53, 5, False, (255,0,0)),    # Mars
+    (display.create_pen(255, 200, 100), 120, 0.08, 12, True, (255,200,100)), # Jupiter
+    (display.create_pen(200, 150, 100), 150, 0.03, 10, True, (200,150,100)), # Saturn
+    (display.create_pen(100, 200, 255), 180, 0.011, 8, False, (100,200,255)), # Uranus
+    (display.create_pen(50, 50, 255), 210, 0.006, 8, False, (50,50,255))  # Neptune
 ]
 
 # **Moons: (Parent Index, Color, Orbit Radius, Orbital Speed, Size)**
@@ -80,90 +84,122 @@ def draw_sun():
     """Draws the Sun with gentle drifting motion."""
     global sun_x_offset, sun_y_offset, sun_angle
 
-    sun_x_offset = int(5 * math.cos(math.radians(sun_angle)))
-    sun_y_offset = int(3 * math.sin(math.radians(sun_angle)))
+    sun_x_offset = 5/30 * math.cos(math.radians(sun_angle))
+    sun_y_offset = 3/30 * math.sin(math.radians(sun_angle))
     sun_angle = (sun_angle + 0.02) % 360
 
-    vector.set_transform(Transform())
-
-    sun = Polygon()
-    sun.circle(0, 0, 25)
-
-    t = Transform()
-    t.translate(CX + sun_x_offset, CY + sun_y_offset)
-    vector.set_transform(t)
-
-    display.set_pen(SUN_COLOR)
-    vector.draw(sun)
-
-def draw_planets():
-    """Draws planets orbiting the drifting Sun, with smooth size scaling."""
-    for i, (color, radius, speed, size, has_moons) in enumerate(PLANETS):
-        planet_angles[i] = (planet_angles[i] + speed) % 360
-        angle_index = int(planet_angles[i])
-
-        x = CX + sun_x_offset + int(radius * COS_TABLE[angle_index])
-        y = CY + sun_y_offset + int(radius * SIN_TABLE[angle_index])
-
-        if has_moons:
-            draw_moons(i, x, y)
-
-        planet = Polygon()
-        planet.circle(0, 0, size)
+    x, y, z = proj(sun_y_offset, sun_y_offset, 0)
+    if z>0:
+        sun = Polygon()
+        sun.circle(0, 0, circR(15, z))
 
         t = Transform()
         t.translate(x, y)
         vector.set_transform(t)
-        display.set_pen(color)
-        vector.draw(planet)
 
-def draw_moons(parent_index, px, py):
+        display.set_pen(SUN_COLOR)
+        vector.draw(sun)
+
+@micropython.native
+def rot(a, b, r):
+#    s = SIN_TABLE[r%360]
+#    c = COS_TABLE[r%360]
+    s = math.sin(r/57.29)
+    c = math.cos(r/57.29)
+    return c*a - s*b, s*a + c*b
+
+@micropython.native
+def proj(x,y,z):   
+    x, y = rot(x, y, CAMRZ)
+    y, z = rot(y, z, CAMRX)
+    
+    z = z + 30
+    if z == 0:
+        z = 0.0001
+    
+    dz=800*(6/(z-CAMZ+6))
+    return CX+(x-CAMX)*dz, CY+(y-CAMY)*dz, dz
+
+def circR(size, z):
+    return max(1, min(40, 0.002 * (size * z)))
+
+def draw_planets():
+    """Draws planets orbiting the drifting Sun, with smooth size scaling."""
+    for i, (color, radius, speed, size, has_moons, _) in enumerate(PLANETS):
+        planet_angles[i] = (planet_angles[i] + speed) % 360
+        angle_index = int(planet_angles[i])
+
+        x = radius * COS_TABLE[angle_index] / 250
+        y = radius * SIN_TABLE[angle_index] / 250
+        z = 0
+        
+        if has_moons:
+            draw_moons(i, x, y, z)
+
+        x, y, z = proj(x, y, z)
+        if z > 0:
+            planet = Polygon()
+            planet.circle(0, 0, circR(size, z))
+            t = Transform()
+            t.translate(x, y)
+            vector.set_transform(t)
+            display.set_pen(color)
+            vector.draw(planet)
+
+def draw_moons(parent_index, px, py, pz):
     """Draws moons orbiting their parent planets."""
     for j, (p_index, color, orbit_radius, speed, size) in enumerate(MOONS):
         if p_index == parent_index:
             moon_angles[j] = (moon_angles[j] + speed) % 360
             angle_index = int(moon_angles[j])
 
-            mx = px + int(orbit_radius * COS_TABLE[angle_index])
-            my = py + int(orbit_radius * SIN_TABLE[angle_index])
+            mx = px + (orbit_radius * COS_TABLE[angle_index]) / 250
+            my = py + (orbit_radius * SIN_TABLE[angle_index]) / 250
+            mz = pz
 
-            moon = Polygon()
-            moon.circle(0, 0, size)
+            mx, my, mz = proj(mx, my, mz)
+            if mz > 0:
+                moon = Polygon()
+                moon.circle(0, 0, circR(size, mz))
 
-            t = Transform()
-            t.translate(mx, my)
-            vector.set_transform(t)
-            display.set_pen(color)
-            vector.draw(moon)
+                t = Transform()
+                t.translate(mx, my)
+                vector.set_transform(t)
+                display.set_pen(color)
+                vector.draw(moon)
 
 def draw_orbits():
     """Draws orbit rings using small dotted circles."""
-    for _, radius, _, _, _ in PLANETS:
-        display.set_pen(DARK_GREY)
-        for angle in range(0, 360, 10):  
-            x = CX + int(radius * COS_TABLE[angle])
-            y = CY + int(radius * SIN_TABLE[angle])
-            display.pixel(x, y)  
+    for pen, radius, _, _, _, rgbs in PLANETS:
+        display.set_pen(display.create_pen(rgbs[0]//4,rgbs[1]//4,rgbs[2]//4))
+        iPen = 0
+        for angle in range(0, 360, 10):
+            x = radius * COS_TABLE[angle] / 250
+            y = radius * SIN_TABLE[angle] / 250
+            x, y, z = proj(x, y, 0)
+            display.pixel(int(x), int(y))
 
 def draw_stars():
     """Draws a dynamic starfield."""
     for x, y in STARS:
         display.set_pen(WHITE)
-        display.pixel(x, y)
+        x, y, z = proj(x, y, 0)
+        display.pixel(int(x), int(y))
 
 def draw_comets():
     """Draws comets moving across the screen."""
     for x, y, _, _ in comets:
+        x, y, z = proj(x, y, 0)
         display.set_pen(WHITE)
         display.pixel(int(x), int(y))
 
 def spawn_comet():
     """Randomly spawns a comet."""
     if random.random() < 0.005:  
-        x = random.randint(0, WIDTH)
-        y = random.randint(0, HEIGHT)
+        x = random.random()*2-1
+        y = random.random()*2-1
         angle = random.uniform(0, 2 * math.pi)
-        speed = random.uniform(1, 3)
+        speed = (.1+random.random()*.9)*.01
         comets.append([x, y, angle, speed])
 
 def update_comets():
@@ -171,12 +207,18 @@ def update_comets():
     for comet in comets:
         comet[0] += math.cos(comet[2]) * comet[3]
         comet[1] += math.sin(comet[2]) * comet[3]
-    comets[:] = [c for c in comets if 0 <= c[0] < WIDTH and 0 <= c[1] < HEIGHT]
+    comets[:] = [c for c in comets if -1 <= c[0] < 1 and -1 <= c[1] < 1]
 
 while True:
     display.set_pen(BLACK)
     display.clear()
 
+    CAMZ = 15 + SIN_TABLE[T%360] * 10
+    CAMX = 0
+    CAMX = math.sin(T*.02) * .2
+    CAMRZ = -T
+    CAMRX = 65+math.sin(T*.04) * 10
+    
     update_camera()
     spawn_comet()
     update_comets()
@@ -185,8 +227,10 @@ while True:
     draw_stars()
     draw_orbits()
     draw_planets()
+    
     draw_sun()
 
     presto.update()
-    time.sleep(0.01)
+    T=T+1
+    time.sleep(1/60)
 
