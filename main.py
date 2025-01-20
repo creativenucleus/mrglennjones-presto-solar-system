@@ -18,7 +18,7 @@ DARK_GREY = display.create_pen(50, 50, 50)  # Dark Grey Orbit Rings (Dotted)
 WHITE = display.create_pen(255, 255, 255)  # Stars & Comets
 SUN_COLOR = display.create_pen(255, 255, 0)  # Sun Core
 
-# **Precompute Sin/Cos Tables for Faster Math**5
+# **Precompute Sin/Cos Tables for Faster Math**
 SIN_TABLE = [math.sin(math.radians(i)) for i in range(360)]
 COS_TABLE = [math.cos(math.radians(i)) for i in range(360)]
 
